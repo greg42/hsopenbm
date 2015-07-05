@@ -11,8 +11,10 @@
 {-| This module implements a higher-level abstraction of an OpenBM service. -}
 module Network.OpenBM.Service (OpenBMServiceContext, openBMServiceCreate,
                                openBMRegisterInterest, sendOpenBMHandle,
-                               recvOpenBMHandle, OpenBMHandle) where
+                               recvOpenBMHandle, OpenBMHandle,
+                               recvOpenBMHandleWithTimeout) where
 
+import           Control.Applicative
 import           Network.OpenBM
 import qualified Data.ByteString as BS
 import           Data.ByteString (ByteString)
@@ -21,6 +23,7 @@ import           Control.Monad
 import           Control.Concurrent
 import           Data.IORef
 import           Control.Concurrent.STM.TChan
+import           Control.Concurrent.STM.TMVar
 import           Control.Monad.STM
 import           Control.Concurrent.MVar
 import           System.IO
@@ -132,3 +135,12 @@ sendOpenBMHandle h m = atomically $ writeTChan h m
 -- | Receives a message from an OpenBM Handle
 recvOpenBMHandle :: OpenBMHandle -> IO OpenBMMessage
 recvOpenBMHandle h = atomically $ readTChan h
+
+-- | Receives a message from an OpenBM Handle with a given timeout
+recvOpenBMHandleWithTimeout :: OpenBMHandle -> Int -> IO (Maybe OpenBMMessage)
+recvOpenBMHandleWithTimeout h to = do
+   tmv <- newEmptyTMVarIO
+   forkIO $ do
+      threadDelay to
+      atomically $ putTMVar tmv Nothing
+   atomically $ (Just <$> readTChan h) `orElse` readTMVar tmv
