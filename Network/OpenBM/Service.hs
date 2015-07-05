@@ -11,7 +11,7 @@
 {-| This module implements a higher-level abstraction of an OpenBM service. -}
 module Network.OpenBM.Service (OpenBMServiceContext, openBMServiceCreate,
                                openBMRegisterInterest, sendOpenBMHandle,
-                               recvOpenBMHandle) where
+                               recvOpenBMHandle, OpenBMHandle) where
 
 import           Network.OpenBM
 import qualified Data.ByteString as BS
