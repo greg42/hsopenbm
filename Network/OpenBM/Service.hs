@@ -24,6 +24,7 @@ import           Control.Concurrent.STM.TChan
 import           Control.Monad.STM
 import           Control.Concurrent.MVar
 import           System.IO
+import qualified Control.Exception as EX
 
 -- | A Handle to an OpenBM connection
 type OpenBMHandle = TChan OpenBMMessage
@@ -71,6 +72,16 @@ openBMSenderThread ctx = forever $ do
               msg <- atomically $ selectSTM chans
               sendOpenBM (openBMHandle ctx) msg
 
+-- | Runs an IO action and exit the whole process if an exception occurs.
+-- This is most useful for multi-threaded code, where normally an exception
+-- would only terminate the current thread.
+forkIOCritical :: IO () -> IO ThreadId
+forkIOCritical action = do
+   tid <- myThreadId
+   forkIO $ EX.catch action (handler tid)
+   where handler :: ThreadId -> EX.SomeException -> IO ()
+         handler tid ex = throwTo tid ex
+
 -- | Creates an OpenBM service context. It will perform the low-level tasks
 -- such as pinging the OpenBM server on a regular basis, so that you can
 -- focus on the actual application logic.
@@ -93,9 +104,9 @@ openBMServiceCreate hostName port = do
                                                       , openBMShutdown = mv
                                                       , openBMInterestSet = is
                                                     }
-                      forkIO $ openBMPingThread    ct
-                      forkIO $ openBMServiceThread ct
-                      forkIO $ openBMSenderThread  ct
+                      forkIOCritical $ openBMPingThread    ct
+                      forkIOCritical $ openBMServiceThread ct
+                      forkIOCritical $ openBMSenderThread  ct
                       return $ Right ct
 
 -- | Registers interest for a particular kind of OpenBM message and returns
