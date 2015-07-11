@@ -22,24 +22,35 @@ import           Data.Word
 
 -- | Known IBUS devices                                                          
 data IbusDevice = CDPlayer | BordMonitor | SteeringWheel | Radio | Broadcast
+                | IKE
                 deriving(Eq)
 
 instance Enum IbusDevice where 
     fromEnum = fromJust . flip lookup table 
     toEnum = fromJust . flip lookup (map swap table) 
 table = [  (CDPlayer, 0x18), (BordMonitor, 0xF0), (SteeringWheel, 0x50) 
-         , (Radio, 0x68), (Broadcast, 0xFF)] 
+         , (Radio, 0x68), (IKE, 0x80), (Broadcast, 0xFF)] 
 
 -- | An event on the IBUS.
 data IbusEvent = SteeringWheelUpButtonReleased
                | SteeringWheelDownButtonReleased
-               | NavigationKnobTurnedLeft Int
-               | NavigationKnobTurnedRight Int
+               | NavigationKnobTurnedLeft Int -- ^ Rotation by n positions
+               | NavigationKnobTurnedRight Int -- ^ Rotation by n positions
                | NavigationKnobReleased
                | ModeButtonReleased
                | LeftButtonReleased
                | RightButtonReleased
                | ReverseTapeButtonReleased
+               | ReverseTapeButtonPressed Bool -- ^ Reverse button pressed long (True) or short (False)
+               | CdPing -- ^ Ping message from the radio to the CD player
+               | CdGetState -- ^ Radio requests current state from CD player
+               | CdPlay -- ^ Radio tells CD player to start playing
+               | CdPause -- ^ Radio tells CD player to pause playing
+               | CdStop -- ^ Radio tells CD player to stop playing
+               | CdNextTrack -- ^ Radio tells CD player to play the next track
+               | CdPrevTrack -- ^ Radio tells CD player to play the previous track
+               | IgnitionOn -- ^ IKE signals that the ignition is active
+               | IgnitionOff -- ^ IKE signals that the ignition is turned off
                | UnknownEvent OpenBMMessage
                deriving (Eq, Show)
 
@@ -77,6 +88,17 @@ messageToEvent msg
    | srcDataEquals BordMonitor [0x49, 0x89] msg = NavigationKnobTurnedRight 9
    | srcDataEquals BordMonitor [0x48, 0x90] msg = LeftButtonReleased
    | srcDataEquals BordMonitor [0x48, 0x80] msg = RightButtonReleased
+   | srcDataEquals BordMonitor [0x48, 0x54] msg = ReverseTapeButtonPressed True
+   | srcDataEquals BordMonitor [0x48, 0x14] msg = ReverseTapeButtonPressed False
+   | srcDataEquals Radio       [0x01]       msg = CdPing
+   | srcDataEquals Radio       [0x38, 0x00, 0x00] msg = CdGetState
+   | srcDataEquals Radio       [0x38, 0x03, 0x00] msg = CdPlay
+   | srcDataEquals Radio       [0x38, 0x02, 0x00] msg = CdPause
+   | srcDataEquals Radio       [0x38, 0x01, 0x00] msg = CdStop
+   | srcDataEquals Radio       [0x38, 0x0a, 0x00] msg = CdNextTrack
+   | srcDataEquals Radio       [0x38, 0x0a, 0x01] msg = CdPrevTrack
+   | srcDataEquals IKE         [0x11, 0x00]       msg = IgnitionOff
+   | srcDataEquals IKE         [0x11, 0x01]       msg = IgnitionOn
    | otherwise = UnknownEvent msg
 
 -- | Creates an OpenBM Message (simplified version)
