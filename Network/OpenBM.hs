@@ -72,7 +72,7 @@ receiveOpenBM h = do
    len  <- BS.head <$> BS.hGet h 1
    res1 <- BS.head <$> BS.hGet h 1
    tmp <- BS.hGet h 2
-   let prio = fromIntegral $ (fromIntegral $ BS.head tmp) * 256 + (fromIntegral $ BS.last tmp)
+   let prio = fromIntegral $ (fromIntegral $ BS.head tmp) + (fromIntegral $ BS.last tmp) * 256
    res2 <- BS.head <$> BS.hGet h 1
    res3 <- BS.head <$> BS.hGet h 1
    msg  <- BS.hGet h (fromIntegral len)
@@ -90,8 +90,8 @@ receiveOpenBM h = do
 -- | Sends an OpenBM message to a Handle (probably a network connection).
 sendOpenBM :: Handle -> OpenBMMessage -> IO ()
 sendOpenBM h msg = do
-   let p1 = fromIntegral $ (openBMPrio msg) `div` 256
-   let p2 = fromIntegral $ (openBMPrio msg) `mod` 256
+   let p1 = fromIntegral $ (openBMPrio msg) `mod` 256
+   let p2 = fromIntegral $ (openBMPrio msg) `div` 256
    let bsMsg = BS.pack $ [
            openBMSrc  msg
          , openBMDst  msg
@@ -103,6 +103,7 @@ sendOpenBM h msg = do
          , openBMRes3 msg
         ]
    BS.hPut h (BS.append bsMsg (openBMData msg))
+   hFlush h
 
 -- | Does the OpenBM handshake procedure and returns a new Handle or an error
 doOpenBMHandshake ::     String -- ^ The remote host name
