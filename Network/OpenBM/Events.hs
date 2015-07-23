@@ -15,7 +15,8 @@ module Network.OpenBM.Events (IbusDevice(..), message, IbusEvent(..),
 
 import           Network.OpenBM
 import           Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
+import qualified Data.ByteString       as BS
+import qualified Data.ByteString.Char8 as C8
 import           Data.Maybe
 import           Data.Tuple
 import           Data.Word
@@ -51,6 +52,12 @@ data IbusEvent = SteeringWheelUpButtonReleased
                | CdPrevTrack -- ^ Radio tells CD player to play the previous track
                | IgnitionOn -- ^ IKE signals that the ignition is active
                | IgnitionOff -- ^ IKE signals that the ignition is turned off
+               | WriteIndexMK2 Int String -- ^ Write to the given index field on
+                                          -- the screen (see
+                                          -- http://web.comhem.se/mulle2/IBUSInsideDRAFTREV5.pdf). Only
+                                          -- observed on MK2 systems.
+               | WriteIndexMK34 Int String -- ^ Write to the fiven index field on the screen.
+               | WriteTitle Int String -- ^ Write to the given title field on the screen.
                | UnknownEvent OpenBMMessage
                deriving (Eq, Show)
 
@@ -58,6 +65,11 @@ data IbusEvent = SteeringWheelUpButtonReleased
 srcDataEquals :: IbusDevice -> [Word8] -> OpenBMMessage -> Bool
 srcDataEquals src payload msg =
    openBMSrc msg == (fromIntegral $ fromEnum src) && openBMData msg == BS.pack payload
+
+-- | Checks the source address and the beginning of the payload of an OpenBM message
+srcDataStartsWith :: IbusDevice -> Int -> [Word8] -> OpenBMMessage -> Bool
+srcDataStartsWith src minLen payload msg =
+   openBMSrc msg == (fromIntegral $ fromEnum src) && (BS.length $ openBMData msg) >= minLen && (BS.take (length payload) $ openBMData msg) == BS.pack payload
 
 -- | Parses an OpenBM message into an IbusEvent.
 messageToEvent :: OpenBMMessage -> IbusEvent
@@ -99,7 +111,13 @@ messageToEvent msg
    | srcDataEquals Radio       [0x38, 0x0a, 0x01] msg = CdPrevTrack
    | srcDataEquals IKE         [0x11, 0x00]       msg = IgnitionOff
    | srcDataEquals IKE         [0x11, 0x01]       msg = IgnitionOn
+   | srcDataStartsWith Radio 3 [0x23, 0x62, 0x10] msg = WriteTitle 0 (C8.unpack $ BS.drop 3 $ openBMData msg)
+   | srcDataStartsWith Radio 4 [0xA5, 0x62, 0x01] msg = WriteTitle (toIndex $ (flip BS.index) 3 $ openBMData msg) (C8.unpack $ BS.drop 4 $ openBMData msg)
+   | srcDataStartsWith Radio 4 [0x21, 0x60, 0x00] msg = WriteIndexMK34 (toIndex $ (flip BS.index) 3 $ openBMData msg) (C8.unpack $ BS.drop 4 $ openBMData msg)
+   | srcDataStartsWith Radio 4 [0xA5, 0x62, 0x00] msg = WriteIndexMK34 (toIndex $ (flip BS.index) 3 $ openBMData msg) (C8.unpack $ BS.drop 4 $ openBMData msg)
    | otherwise = UnknownEvent msg
+   where toIndex 7 = 7
+         toIndex n = fromIntegral $ n - 0x40
 
 -- | Creates an OpenBM Message (simplified version)
 message :: IbusDevice -> IbusDevice -> [Word8] -> OpenBMMessage
