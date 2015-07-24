@@ -11,7 +11,8 @@
 (known) events on the IBUS. -}
 
 module Network.OpenBM.Events (IbusDevice(..), message, IbusEvent(..),
-                              isFromDevice, messageToEvent, isToDevice) where
+                              isFromDevice, messageToEvent, isToDevice,
+                              eventToMessage) where
 
 import           Network.OpenBM
 import           Data.ByteString (ByteString)
@@ -21,16 +22,18 @@ import           Data.Maybe
 import           Data.Tuple
 import           Data.Word
 
--- | Known IBUS devices                                                          
+-- | Known IBUS devices 
 data IbusDevice = CDPlayer | BordMonitor | SteeringWheel | Radio | Broadcast
-                | IKE
+                | IKE | NavigationVideo | UnknownDevice
                 deriving(Eq)
 
 instance Enum IbusDevice where 
     fromEnum = fromJust . flip lookup table 
-    toEnum = fromJust . flip lookup (map swap table) 
-table = [  (CDPlayer, 0x18), (BordMonitor, 0xF0), (SteeringWheel, 0x50) 
-         , (Radio, 0x68), (IKE, 0x80), (Broadcast, 0xFF)] 
+    toEnum   = fromMaybe UnknownDevice . flip lookup (map swap table)
+
+table = [  (CDPlayer, 0x18), (BordMonitor, 0xF0), (SteeringWheel, 0x50)
+         , (Radio, 0x68), (IKE, 0x80), (Broadcast, 0xFF)
+         , (NavigationVideo, 0x3B)]
 
 -- | An event on the IBUS.
 data IbusEvent = SteeringWheelUpButtonReleased
@@ -38,6 +41,7 @@ data IbusEvent = SteeringWheelUpButtonReleased
                | NavigationKnobTurnedLeft Int -- ^ Rotation by n positions
                | NavigationKnobTurnedRight Int -- ^ Rotation by n positions
                | NavigationKnobReleased
+               | ModeButtonPressed
                | ModeButtonReleased
                | LeftButtonReleased
                | RightButtonReleased
@@ -66,56 +70,76 @@ srcDataEquals :: IbusDevice -> [Word8] -> OpenBMMessage -> Bool
 srcDataEquals src payload msg =
    openBMSrc msg == (fromIntegral $ fromEnum src) && openBMData msg == BS.pack payload
 
--- | Checks the source address and the beginning of the payload of an OpenBM message
-srcDataStartsWith :: IbusDevice -> Int -> [Word8] -> OpenBMMessage -> Bool
-srcDataStartsWith src minLen payload msg =
-   openBMSrc msg == (fromIntegral $ fromEnum src) && (BS.length $ openBMData msg) >= minLen && (BS.take (length payload) $ openBMData msg) == BS.pack payload
+-- | Checks the source and destination address and the beginning of the payload
+-- of an OpenBM message
+srcDstDataStartsWith :: IbusDevice -> IbusDevice -> Int -> [Word8] -> OpenBMMessage -> Bool
+srcDstDataStartsWith src dst minLen payload msg =
+   openBMSrc msg == (fromIntegral $ fromEnum src) 
+      && openBMDst msg == (fromIntegral $ fromEnum dst)
+      && (BS.length $ openBMData msg) >= minLen 
+      && (BS.take (length payload) $ openBMData msg) == BS.pack payload
+
+-- | Simple IBUS messages that are fully known in advance
+simpleMessages :: [((IbusDevice, IbusDevice, [Word8]), IbusEvent)]
+simpleMessages = [
+     ((SteeringWheel, Radio   , [0x3B, 0x21]      ), SteeringWheelUpButtonReleased   )
+   , ((SteeringWheel, Radio   , [0x3B, 0x28]      ), SteeringWheelDownButtonReleased )
+   , ((BordMonitor  , Radio   , [0x48, 0x94]      ), ReverseTapeButtonReleased       )
+   , ((BordMonitor  , Radio   , [0x48, 0x23]      ), ModeButtonPressed               )
+   , ((BordMonitor  , Radio   , [0x48, 0xA3]      ), ModeButtonReleased              )
+   , ((BordMonitor  , Radio   , [0x48, 0x85]      ), NavigationKnobReleased          )
+   , ((BordMonitor  , Radio   , [0x49, 0x01]      ), NavigationKnobTurnedLeft 1      )
+   , ((BordMonitor  , Radio   , [0x49, 0x02]      ), NavigationKnobTurnedLeft 2      )
+   , ((BordMonitor  , Radio   , [0x49, 0x03]      ), NavigationKnobTurnedLeft 3      )
+   , ((BordMonitor  , Radio   , [0x49, 0x04]      ), NavigationKnobTurnedLeft 4      )
+   , ((BordMonitor  , Radio   , [0x49, 0x05]      ), NavigationKnobTurnedLeft 5      )
+   , ((BordMonitor  , Radio   , [0x49, 0x06]      ), NavigationKnobTurnedLeft 6      )
+   , ((BordMonitor  , Radio   , [0x49, 0x07]      ), NavigationKnobTurnedLeft 7      )
+   , ((BordMonitor  , Radio   , [0x49, 0x08]      ), NavigationKnobTurnedLeft 8      )
+   , ((BordMonitor  , Radio   , [0x49, 0x09]      ), NavigationKnobTurnedLeft 9      )
+   , ((BordMonitor  , Radio   , [0x49, 0x81]      ), NavigationKnobTurnedRight 1     )
+   , ((BordMonitor  , Radio   , [0x49, 0x82]      ), NavigationKnobTurnedRight 2     )
+   , ((BordMonitor  , Radio   , [0x49, 0x83]      ), NavigationKnobTurnedRight 3     )
+   , ((BordMonitor  , Radio   , [0x49, 0x84]      ), NavigationKnobTurnedRight 4     )
+   , ((BordMonitor  , Radio   , [0x49, 0x85]      ), NavigationKnobTurnedRight 5     )
+   , ((BordMonitor  , Radio   , [0x49, 0x86]      ), NavigationKnobTurnedRight 6     )
+   , ((BordMonitor  , Radio   , [0x49, 0x87]      ), NavigationKnobTurnedRight 7     )
+   , ((BordMonitor  , Radio   , [0x49, 0x88]      ), NavigationKnobTurnedRight 8     )
+   , ((BordMonitor  , Radio   , [0x49, 0x89]      ), NavigationKnobTurnedRight 9     )
+   , ((BordMonitor  , Radio   , [0x48, 0x90]      ), LeftButtonReleased              )
+   , ((BordMonitor  , Radio   , [0x48, 0x80]      ), RightButtonReleased             )
+   , ((BordMonitor  , Radio   , [0x48, 0x54]      ), ReverseTapeButtonPressed True   )
+   , ((BordMonitor  , Radio   , [0x48, 0x14]      ), ReverseTapeButtonPressed False  )
+   , ((Radio        , CDPlayer, [0x01]            ), CdPing                          )
+   , ((Radio        , CDPlayer, [0x38, 0x00, 0x00]), CdGetState                      )
+   , ((Radio        , CDPlayer, [0x38, 0x03, 0x00]), CdPlay                          )
+   , ((Radio        , CDPlayer, [0x38, 0x02, 0x00]), CdPause                         )
+   , ((Radio        , CDPlayer, [0x38, 0x01, 0x00]), CdStop                          )
+   , ((Radio        , CDPlayer, [0x38, 0x0a, 0x00]), CdNextTrack                     )
+   , ((Radio        , CDPlayer, [0x38, 0x0a, 0x01]), CdPrevTrack                     )
+  ]
+
+-- | Generates an OpenBM message from an IbusEvent.
+eventToMessage :: IbusEvent -> OpenBMMessage
+eventToMessage event = 
+   case lookup event (map swap simpleMessages) of
+      Just (src, dst, payload) -> mkOpenBMMessage (fromIntegral $ fromEnum src) (fromIntegral $ fromEnum dst) 0 (BS.pack payload)
+      Nothing -> case event of
+                   UnknownEvent msg -> msg
+                   _                -> error "Cannot serialize event to message."
 
 -- | Parses an OpenBM message into an IbusEvent.
 messageToEvent :: OpenBMMessage -> IbusEvent
-messageToEvent msg
-   | srcDataEquals SteeringWheel [0x3B, 0x21] msg = SteeringWheelUpButtonReleased
-   | srcDataEquals SteeringWheel [0x3B, 0x28] msg = SteeringWheelDownButtonReleased
-   | srcDataEquals BordMonitor [0x48, 0x94] msg = ReverseTapeButtonReleased
-   | srcDataEquals BordMonitor [0x48, 0xA3] msg = ModeButtonReleased
-   | srcDataEquals BordMonitor [0x48, 0xA3] msg = ModeButtonReleased
-   | srcDataEquals BordMonitor [0x48, 0x85] msg = NavigationKnobReleased
-   | srcDataEquals BordMonitor [0x49, 0x01] msg = NavigationKnobTurnedLeft 1
-   | srcDataEquals BordMonitor [0x49, 0x02] msg = NavigationKnobTurnedLeft 2
-   | srcDataEquals BordMonitor [0x49, 0x03] msg = NavigationKnobTurnedLeft 3
-   | srcDataEquals BordMonitor [0x49, 0x04] msg = NavigationKnobTurnedLeft 4
-   | srcDataEquals BordMonitor [0x49, 0x05] msg = NavigationKnobTurnedLeft 5
-   | srcDataEquals BordMonitor [0x49, 0x06] msg = NavigationKnobTurnedLeft 6
-   | srcDataEquals BordMonitor [0x49, 0x07] msg = NavigationKnobTurnedLeft 7
-   | srcDataEquals BordMonitor [0x49, 0x08] msg = NavigationKnobTurnedLeft 8
-   | srcDataEquals BordMonitor [0x49, 0x09] msg = NavigationKnobTurnedLeft 9
-   | srcDataEquals BordMonitor [0x49, 0x81] msg = NavigationKnobTurnedRight 1
-   | srcDataEquals BordMonitor [0x49, 0x82] msg = NavigationKnobTurnedRight 2
-   | srcDataEquals BordMonitor [0x49, 0x83] msg = NavigationKnobTurnedRight 3
-   | srcDataEquals BordMonitor [0x49, 0x84] msg = NavigationKnobTurnedRight 4
-   | srcDataEquals BordMonitor [0x49, 0x85] msg = NavigationKnobTurnedRight 5
-   | srcDataEquals BordMonitor [0x49, 0x86] msg = NavigationKnobTurnedRight 6
-   | srcDataEquals BordMonitor [0x49, 0x87] msg = NavigationKnobTurnedRight 7
-   | srcDataEquals BordMonitor [0x49, 0x88] msg = NavigationKnobTurnedRight 8
-   | srcDataEquals BordMonitor [0x49, 0x89] msg = NavigationKnobTurnedRight 9
-   | srcDataEquals BordMonitor [0x48, 0x90] msg = LeftButtonReleased
-   | srcDataEquals BordMonitor [0x48, 0x80] msg = RightButtonReleased
-   | srcDataEquals BordMonitor [0x48, 0x54] msg = ReverseTapeButtonPressed True
-   | srcDataEquals BordMonitor [0x48, 0x14] msg = ReverseTapeButtonPressed False
-   | srcDataEquals Radio       [0x01]       msg = CdPing
-   | srcDataEquals Radio       [0x38, 0x00, 0x00] msg = CdGetState
-   | srcDataEquals Radio       [0x38, 0x03, 0x00] msg = CdPlay
-   | srcDataEquals Radio       [0x38, 0x02, 0x00] msg = CdPause
-   | srcDataEquals Radio       [0x38, 0x01, 0x00] msg = CdStop
-   | srcDataEquals Radio       [0x38, 0x0a, 0x00] msg = CdNextTrack
-   | srcDataEquals Radio       [0x38, 0x0a, 0x01] msg = CdPrevTrack
-   | srcDataEquals IKE         [0x11, 0x00]       msg = IgnitionOff
-   | srcDataEquals IKE         [0x11, 0x01]       msg = IgnitionOn
-   | srcDataStartsWith Radio 3 [0x23, 0x62, 0x10] msg = WriteTitle 0 (C8.unpack $ BS.drop 3 $ openBMData msg)
-   | srcDataStartsWith Radio 4 [0xA5, 0x62, 0x01] msg = WriteTitle (toIndex $ (flip BS.index) 3 $ openBMData msg) (C8.unpack $ BS.drop 4 $ openBMData msg)
-   | srcDataStartsWith Radio 4 [0x21, 0x60, 0x00] msg = WriteIndexMK34 (toIndex $ (flip BS.index) 3 $ openBMData msg) (C8.unpack $ BS.drop 4 $ openBMData msg)
-   | srcDataStartsWith Radio 4 [0xA5, 0x62, 0x00] msg = WriteIndexMK34 (toIndex $ (flip BS.index) 3 $ openBMData msg) (C8.unpack $ BS.drop 4 $ openBMData msg)
-   | otherwise = UnknownEvent msg
+messageToEvent msg =
+   case lookup (toEnum $ fromIntegral $ openBMSrc msg, toEnum $ fromIntegral $ openBMDst msg, BS.unpack $ openBMData msg) simpleMessages of
+      Just event -> event
+      Nothing    | srcDataEquals IKE [0x11, 0x00] msg -> IgnitionOff
+                 | srcDataEquals IKE [0x11, 0x01] msg -> IgnitionOn
+                 | srcDstDataStartsWith Radio NavigationVideo 3 [0x23, 0x62, 0x10] msg -> WriteTitle 0 (C8.unpack $ BS.drop 3 $ openBMData msg)
+                 | srcDstDataStartsWith Radio NavigationVideo 4 [0xA5, 0x62, 0x01] msg -> WriteTitle (toIndex $ (flip BS.index) 3 $ openBMData msg) (C8.unpack $ BS.drop 4 $ openBMData msg)
+                 | srcDstDataStartsWith Radio NavigationVideo 4 [0x21, 0x60, 0x00] msg -> WriteIndexMK34 (toIndex $ (flip BS.index) 3 $ openBMData msg) (C8.unpack $ BS.drop 4 $ openBMData msg)
+                 | srcDstDataStartsWith Radio NavigationVideo 4 [0xA5, 0x62, 0x00] msg -> WriteIndexMK34 (toIndex $ (flip BS.index) 3 $ openBMData msg) (C8.unpack $ BS.drop 4 $ openBMData msg)
+                | otherwise -> UnknownEvent msg
    where toIndex 7 = 7
          toIndex n = fromIntegral $ n - 0x40
 
