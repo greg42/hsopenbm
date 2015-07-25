@@ -140,8 +140,7 @@ messageToEvent msg =
                  | srcDstDataStartsWith Radio NavigationVideo 4 [0x21, 0x60, 0x00] msg -> WriteIndexMK34 (toIndex $ (flip BS.index) 3 $ openBMData msg) (C8.unpack $ BS.drop 4 $ openBMData msg)
                  | srcDstDataStartsWith Radio NavigationVideo 4 [0xA5, 0x62, 0x00] msg -> WriteIndexMK34 (toIndex $ (flip BS.index) 3 $ openBMData msg) (C8.unpack $ BS.drop 4 $ openBMData msg)
                 | otherwise -> UnknownEvent msg
-   where toIndex 7 = 7
-         toIndex n = fromIntegral $ n - 0x40
+   where toIndex n = fromIntegral $ n 
 
 -- | Creates an OpenBM Message (simplified version)
 message :: IbusDevice -> IbusDevice -> [Word8] -> OpenBMMessage
