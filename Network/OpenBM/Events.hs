@@ -62,6 +62,7 @@ data IbusEvent = SteeringWheelUpButtonReleased
                                           -- observed on MK2 systems.
                | WriteIndexMK34 Int String -- ^ Write to the fiven index field on the screen.
                | WriteTitle Int String -- ^ Write to the given title field on the screen.
+               | EjectButtonReleased
                | UnknownEvent OpenBMMessage
                deriving (Eq, Show)
 
@@ -110,6 +111,7 @@ simpleMessages = [
    , ((BordMonitor  , Radio   , [0x48, 0x80]      ), RightButtonReleased             )
    , ((BordMonitor  , Radio   , [0x48, 0x54]      ), ReverseTapeButtonPressed True   )
    , ((BordMonitor  , Radio   , [0x48, 0x14]      ), ReverseTapeButtonPressed False  )
+   , ((BordMonitor  , Radio   , [0x48, 0xA4]      ), EjectButtonReleased             )
    , ((Radio        , CDPlayer, [0x01]            ), CdPing                          )
    , ((Radio        , CDPlayer, [0x38, 0x00, 0x00]), CdGetState                      )
    , ((Radio        , CDPlayer, [0x38, 0x03, 0x00]), CdPlay                          )
